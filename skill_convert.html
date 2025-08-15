@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>ALwiki スキル欄変換</title>
+<style>
+  #main { width: 90%; max-width: 720px; margin: 40px auto; }
+  textarea { width: 90%; max-width: 500px; height: 240px; }
+  button { padding: 10px; font-size: 20px; }
+  .controls { margin: 8px 0; display: flex; align-items: center; gap: 12px; }
+  .msg { font-size: 0.95rem; }
+  .msg.error { color: #c00; }
+  .msg.info { color: #080; }
+</style>
+</head>
+<body>
+
+<div id="main">
+
+<h3>変換前テキスト</h3>
+<textarea id="input" placeholder="ここにテキストを貼り付けます"></textarea>
+
+<div class="controls">
+  <button id="convertBtn">変換する</button>
+  <span id="message" class="msg" aria-live="polite"></span>
+</div>
+
+<h3>変換後テキスト（自動でクリップボードにコピーされます）</h3>
+<textarea id="output" readonly></textarea>
+
+<div class="disc">
+<p><strong>これはなに？</strong></p>
+<ul><li>アズレンwikiのキャラページ変換スクリプト</li></ul>
+<p><strong>動作内容</strong></p>
+<ul>
+	<li>「''スキル名''」を検索</li>
+	<li>「''スキル名''」のある行と、その次のカスタム行を新式に置換</li>
+	<li>更に次の行から、以降に現れる空行までの特定のテーブル構造を取得<br>|画像|スキル名|テキスト|</li>
+	<li>「BGCOLOR」の存在を考慮しつつ、スキル名をシングルクオート2つで囲む</li>
+	<li>テーブル構造を新式に置換</li>
+	<li>一部の特殊な構造のテーブルを変換した場合に生まれる不要な行を削除</li>
+	<li>置換作業完了後、自動的にクリップボードに送る</li>
+</ul>
+</div>
+
+</div>
+
+<script>
+document.getElementById('convertBtn').addEventListener('click', convert);
+
+function setMessage(text, type) {
+  const el = document.getElementById('message');
+  el.textContent = text || '';
+  el.className = 'msg' + (type ? ' ' + type : '');
+}
+
+function convert() {
+  setMessage('','');
+
+  const text = document.getElementById('input').value;
+  let lines = text.split(/\r?\n/);
+
+  const skillIndex = lines.findIndex(line => line.includes("''スキル名''"));
+  if (skillIndex === -1) {
+    setMessage("エラー: 「''スキル名''」が見つかりません。対象の行が存在するか確認してください。", 'error');
+    return;
+  }
+
+  // 「''スキル名''」行を置換
+  lines[skillIndex] = "|BGCOLOR(#f0f0f0):CENTER:&ensp;　　　&ensp;|BGCOLOR(#f0f0f0):CENTER:''スキル''|";
+
+  // skillIndex の次行から空行が出るまでを動的に処理（end を固定しない）
+  let i = skillIndex + 1;
+  while (i < lines.length && lines[i].trim() !== '') {
+    // 単一行の完全一致置換
+    if (lines[i] === "|CENTER:60|CENTER:150|LEFT:610|c") {
+      lines[i] = "|CENTER:60|LEFT:770|c";
+      i++;
+      continue;
+    }
+
+    // 先頭から末尾までが4本のパイプ構造か検出
+    if (/^\|[^|]*\|[^|]*\|[^|]*\|$/.test(lines[i])) {
+      const parts = lines[i].slice(1, -1).split('|'); // 先頭末尾の|を除去
+      if (parts.length === 3) {
+        const first = parts[0];
+        let second = parts[1];
+        const third = parts[2];
+
+        // BGCOLOR が含まれる場合は "BGCOLOR...:" までを残し、":" 以降だけを囲む
+        const bgPos = second.indexOf('BGCOLOR');
+        if (bgPos !== -1) {
+          const colonPos = second.indexOf(':', bgPos);
+          if (colonPos !== -1) {
+            const prefix = second.slice(0, colonPos + 1);
+            const rest = second.slice(colonPos + 1);
+            second = prefix + "''" + rest + "''";
+          }
+        } else {
+          // BGCOLOR が無ければ全体を囲む
+          second = "''" + second + "''";
+        }
+
+        // 行を置換し、次行に分割行を挿入
+        lines[i] = `|${first}|${second}|`;
+        lines.splice(i + 1, 0, `|~|${third}|`);
+        i += 2; // 挿入に伴うインデックス調整
+        continue;
+      }
+    }
+
+    i++;
+  }
+
+  // 置換で不要な行が生まれたら削除
+  lines = lines.filter(line => line !== "|~|''~''|");
+
+  const outputText = lines.join('\n');
+  document.getElementById('output').value = outputText;
+
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(outputText)
+      .then(() => {
+        setMessage('', '');
+      })
+      .catch(err => {
+        console.error('クリップボードコピー失敗:', err);
+      });
+  }
+}
+</script>
+
+</body>
+</html>
